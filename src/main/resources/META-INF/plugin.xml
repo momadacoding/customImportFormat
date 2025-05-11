@@ -1,0 +1,44 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
+    <id>com.liuhao.customImport</id>
+
+    <!-- Public plugin name should be written in Title Case.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
+    <name>CustomImport</name>
+
+    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
+    <vendor email="support@yourcompany.com" url="https://www.yourcompany.com">YourCompany</vendor>
+
+    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
+         Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
+    <description><![CDATA[
+    This plugin customizes Python import statements for specific directories.
+    <br>
+    Instead of the standard PyCharm format <code>from a.b.c import d</code>,
+    modules under specific directories will be imported as <code>import a.b.c.d as d</code>
+  ]]></description>
+
+    <!-- Product and plugin compatibility requirements.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+    <depends>com.intellij.modules.python</depends>
+
+    <!-- Extension points defined by the plugin.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Register the settings service -->
+        <applicationService serviceImplementation="com.liuhao.customimport.settings.CustomImportSettingsState"/>
+        
+        <!-- Register the settings UI -->
+        <applicationConfigurable 
+            groupId="tools" 
+            instance="com.liuhao.customimport.settings.CustomImportSettingsConfigurable"/>
+    </extensions>
+    
+    <extensions defaultExtensionNs="Pythonid">
+        <importCandidateProvider implementation="com.liuhao.customimport.CustomFormatImportCandidateProvider"/>
+    </extensions>
+</idea-plugin>
