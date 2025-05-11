@@ -33,7 +33,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class CustomFormatImportCandidateProvider implements PyImportCandidateProvider {
     private static final Logger LOG = Logger.getInstance(CustomFormatImportCandidateProvider.class);
     
-    // Map to store what imports we've already handled to avoid duplicates
     private static final Map<String, AtomicBoolean> handledImports = new HashMap<>();
 
     @Override
@@ -85,109 +84,95 @@ public class CustomFormatImportCandidateProvider implements PyImportCandidatePro
                                           @NotNull PsiReference reference) {
         LOG.info("processPotentialCandidate: item=" + item.getName() + ", referenceName=" + referenceName);
         
-        // Get qualified name for the item
         QualifiedName qualifiedNameObj = QualifiedNameFinder.findShortestImportableQName(item);
         if (qualifiedNameObj == null) {
             LOG.warn("Could not determine qualified name for item: " + item.getName());
-            return; // Could not determine qualified name
+            return;
         }
-        
         String qualifiedName = qualifiedNameObj.toString();
         LOG.info("Qualified name for item: " + qualifiedName);
 
-        // Check if this is a qualified name like a.b.c.d with referenceName d
+        PyFile pyFile = getPyFile(reference);
+        if (pyFile == null) {
+            LOG.warn("Could not get PyFile from reference.");
+            return;
+        }
+        Project project = pyFile.getProject();
+
+        // Case 1: Module/package import like a.b.c.d, referenceName is d
         if (qualifiedName.endsWith("." + referenceName)) {
             String parentQualifiedName = qualifiedName.substring(0, qualifiedName.length() - referenceName.length() - 1);
             String parentPath = parentQualifiedName.replace('.', '/');
-            LOG.info("Parent path: " + parentPath);
-            
-            // Check if it's in a special directory that needs custom import format
+            LOG.info("Parent path for " + qualifiedName + ": " + parentPath);
+
             for (String specialPath : specialParentDirPaths) {
                 if (parentPath.equals(specialPath) || parentPath.startsWith(specialPath + "/")) {
-                    LOG.info("Matched specialPath: " + specialPath + ", using custom import format");
+                    LOG.info("Matched specialPath: " + specialPath + " for " + qualifiedName + ", using custom import format.");
                     
-                    // Get a unique key for this import to avoid duplicates
-                    String importKey = qualifiedName + ":" + referenceName;
-                    
-                    // Skip if we've already handled this import
+                    String importKey = qualifiedName + ":" + referenceName; 
                     AtomicBoolean handled = handledImports.computeIfAbsent(importKey, k -> new AtomicBoolean(false));
                     if (handled.getAndSet(true)) {
-                        LOG.info("Skipping already handled import: " + importKey);
+                        LOG.info("Skipping already handled import (proactively initiated): " + importKey);
+                        // Still add to quickFix list in case the proactive insert failed or user wants to see it
+                        // or if IDE needs it for some internal state.
+                        if (item instanceof PsiNamedElement) {
+                            quickFix.addImport((PsiNamedElement) item, item, qualifiedNameObj, referenceName);
+                        }
                         return;
                     }
                     
-                    // Get the file where we need to insert the import
-                    PyFile pyFile = getPyFile(reference);
-                    if (pyFile != null) {
-                        try {
-                            // Generate the correct import statement format
-                            // instead of "from a.b.c import d [as d]", we want "import a.b.c.d as d"
-                            PyElementGenerator generator = PyElementGenerator.getInstance(pyFile.getProject());
-                            PyImportStatement importStatement = generator.createImportStatement(
-                                LanguageLevel.getDefault(), qualifiedName, referenceName);
-                            
-                            LOG.info("Created import statement: " + importStatement.getText());
-                            
-                            // Insert the import into the file
-                            insertImportStatement(pyFile, importStatement);
-                            
-                            // Also add to quickFix to handle the case when import quick fix dialog is shown
-                            // Pass null as asName because we don't want PyCharm to create another alias
-                            if (item instanceof PsiNamedElement) {
-                                PsiNamedElement namedElement = (PsiNamedElement) item;
-                                quickFix.addImport(namedElement, item, qualifiedNameObj, null);
-                            }
-                        } catch (Exception e) {
-                            LOG.error("Error adding import", e);
-                        }
+                    PyElementGenerator generator = PyElementGenerator.getInstance(project);
+                    PyImportStatement importStatement = generator.createImportStatement(
+                        LanguageLevel.forElement(pyFile), qualifiedName, referenceName); // alias is referenceName
+                    
+                    LOG.info("Generated custom import statement: " + importStatement.getText());
+                    CustomFormatImportFix.performDirectImportInsertion(project, pyFile, importStatement);
+                    
+                    // Add to quickFix list so user sees an option and IDE knows about the attempt.
+                    // The proactive insert should ideally make this resolve correctly.
+                    if (item instanceof PsiNamedElement) {
+                        quickFix.addImport((PsiNamedElement) item, item, qualifiedNameObj, referenceName);
+                        LOG.info("Added to quickFix: " + qualifiedName + " as " + referenceName);
                     }
-                    return;
+                    return; 
                 }
             }
         } 
-        // Top-level module case: qualifiedName equals referenceName (e.g. "math")
+        // Case 2: Top-level module case (e.g., qualifiedName is "math", referenceName is "math")
         else if (qualifiedName.equals(referenceName)) {
             for (String specialPath : specialParentDirPaths) {
-                if (specialPath.isEmpty()) { // Empty path matches top-level modules
-                    LOG.info("Matched top-level specialPath (empty string), using custom import format");
+                if (specialPath.isEmpty()) { // Empty path in settings matches top-level modules
+                    LOG.info("Matched top-level specialPath (empty string) for " + qualifiedName + ", using custom import format.");
                     
-                    // Get a unique key for this import to avoid duplicates
-                    String importKey = qualifiedName + ":null";
-                    
-                    // Skip if we've already handled this import
+                    String importKey = qualifiedName + ":null"; // null for no alias
                     AtomicBoolean handled = handledImports.computeIfAbsent(importKey, k -> new AtomicBoolean(false));
                     if (handled.getAndSet(true)) {
-                        LOG.info("Skipping already handled import: " + importKey);
+                        LOG.info("Skipping already handled top-level import (proactively initiated): " + importKey);
+                        if (item instanceof PsiNamedElement) {
+                            quickFix.addImport((PsiNamedElement) item, item, qualifiedNameObj, null);
+                        }
                         return;
                     }
+
+                    PyElementGenerator generator = PyElementGenerator.getInstance(project);
+                    PyImportStatement importStatement = generator.createImportStatement(
+                        LanguageLevel.forElement(pyFile), qualifiedName, null); // No alias
+
+                    LOG.info("Generated custom top-level import statement: " + importStatement.getText());
+                    CustomFormatImportFix.performDirectImportInsertion(project, pyFile, importStatement);
                     
-                    // Get the file where we need to insert the import
-                    PyFile pyFile = getPyFile(reference);
-                    if (pyFile != null) {
-                        try {
-                            // For top-level modules, create "import math" statement
-                            PyElementGenerator generator = PyElementGenerator.getInstance(pyFile.getProject());
-                            PyImportStatement importStatement = generator.createImportStatement(
-                                LanguageLevel.getDefault(), qualifiedName, null);
-                            
-                            LOG.info("Created import statement: " + importStatement.getText());
-                            
-                            // Insert the import into the file
-                            insertImportStatement(pyFile, importStatement);
-                            
-                            // Also add to quickFix for completeness
-                            if (item instanceof PsiNamedElement) {
-                                PsiNamedElement namedElement = (PsiNamedElement) item;
-                                quickFix.addImport(namedElement, item, qualifiedNameObj, null);
-                            }
-                        } catch (Exception e) {
-                            LOG.error("Error adding top-level import", e);
-                        }
+                    if (item instanceof PsiNamedElement) {
+                        quickFix.addImport((PsiNamedElement) item, item, qualifiedNameObj, null); // No alias
+                        LOG.info("Added to quickFix top-level: " + qualifiedName);
                     }
                     return;
                 }
             }
         }
+        
+        // If it's not a special path, we don't add anything to the quickFix here.
+        // PyCharm's other providers or default behavior will handle it.
+        // LOG.debug("No special path match for: " + qualifiedName + ", referenceName: " + referenceName);
     }
     
     /**
@@ -202,58 +187,5 @@ public class CustomFormatImportCandidateProvider implements PyImportCandidatePro
             }
         }
         return null;
-    }
-    
-    /**
-     * Safely insert an import statement into a Python file
-     */
-    private void insertImportStatement(PyFile file, PyImportStatement importStatement) {
-        Project project = file.getProject();
-        
-        // Use WriteCommandAction to safely modify PSI
-        // But be careful about threading issues
-        ApplicationManager.getApplication().invokeLater(() -> {
-            WriteCommandAction.runWriteCommandAction(project, "Add Custom Import", null, () -> {
-                try {
-                    // Find the best place to insert the import
-                    PyImportStatementBase existingImport = null;
-                    
-                    // Get all existing imports
-                    List<PyImportStatementBase> existingImports = file.getImportBlock();
-                    if (!existingImports.isEmpty()) {
-                        existingImport = existingImports.get(existingImports.size() - 1);
-                    }
-                    
-                    if (existingImport != null) {
-                        // Add after the last import
-                        file.addAfter(importStatement, existingImport);
-                        LOG.info("Added import after existing imports");
-                    } else {
-                        // Add at the beginning of the file, but after docstrings
-                        PsiElement firstElement = file.getFirstChild();
-                        
-                        // Skip past docstrings and comments
-                        while (firstElement instanceof PsiWhiteSpace || 
-                               firstElement instanceof PsiComment ||
-                               (firstElement instanceof PyExpressionStatement && 
-                                ((PyExpressionStatement)firstElement).getExpression() instanceof PyStringLiteralExpression)) {
-                            firstElement = firstElement.getNextSibling();
-                            if (firstElement == null) {
-                                // Reached end of file
-                                file.add(importStatement);
-                                LOG.info("Added import at end of file");
-                                return;
-                            }
-                        }
-                        
-                        // Add before the first non-docstring/comment
-                        file.addBefore(importStatement, firstElement);
-                        LOG.info("Added import at beginning after docstrings/comments");
-                    }
-                } catch (Exception e) {
-                    LOG.error("Error inserting import statement", e);
-                }
-            });
-        });
     }
 }
