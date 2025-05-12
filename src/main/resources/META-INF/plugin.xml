@@ -29,6 +29,12 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <intentionAction>
+          <className>com.liuhao.customimport.CustomFormatImportFix</className>
+          <category>Python</category>
+          <!-- You can add a description key for localization if needed -->
+          <!-- <descriptionDirectoryName>intentionDescriptions/CustomFormatImportFix</descriptionDirectoryName> -->
+        </intentionAction>
         <!-- Register the settings service -->
         <applicationService serviceImplementation="com.liuhao.customimport.settings.CustomImportSettingsState"/>
         
