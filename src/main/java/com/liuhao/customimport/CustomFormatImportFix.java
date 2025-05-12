@@ -1,209 +1,215 @@
 package com.liuhao.customimport;
 
 import com.intellij.codeInsight.intention.HighPriorityAction;
-import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
+import com.intellij.codeInsight.intention.PriorityAction;
+import com.intellij.codeInspection.LocalQuickFixOnPsiElement;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
-import com.intellij.psi.search.FilenameIndex;
-import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.QualifiedName;
-import com.intellij.util.IncorrectOperationException;
-import com.jetbrains.python.psi.*;
-import com.jetbrains.python.psi.resolve.QualifiedNameFinder;
 import com.jetbrains.python.codeInsight.imports.AddImportHelper;
-import com.liuhao.customimport.settings.CustomImportSettingsState;
+import com.jetbrains.python.psi.PyElementGenerator;
+import com.jetbrains.python.psi.LanguageLevel;
+import com.jetbrains.python.psi.PyImportStatement;
+import com.jetbrains.python.psi.PyImportStatementBase;
+import com.jetbrains.python.psi.PyFromImportStatement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
-import java.util.Collection;
-
-// Import for preview check
-import com.intellij.codeInsight.intention.preview.IntentionPreviewUtils;
-
-public class CustomFormatImportFix extends BaseIntentionAction implements HighPriorityAction {
+// Make it a QuickFix based on the element, high priority
+public class CustomFormatImportFix extends LocalQuickFixOnPsiElement implements HighPriorityAction {
     private static final Logger LOG = Logger.getInstance(CustomFormatImportFix.class);
 
-    private String detectedFullQualifiedName;
-    private String detectedAliasName; // This is the referenceName for aliased imports
+    private final QualifiedName importPath; // e.g., "my.module" or null for root
+    private final String importElementName; // e.g., "my_function" or "*"
+    private final String customFormatString; // e.g., "from {} import {}" or "from {} import *"
+    private final boolean isHighPriority; // Whether this should be a high priority fix
 
-    public CustomFormatImportFix() {
-        // Text will be set dynamically in isAvailable
-    }
-
-    @NotNull
-    @Override
-    public String getFamilyName() {
-        return "Custom Python Import Formatter";
-    }
-
-    @Override
-    public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-        if (!(file instanceof PyFile) || editor == null) {
-            return false;
+    /**
+     * Constructor with explicit priority control
+     */
+    public CustomFormatImportFix(@NotNull PsiElement element, @NotNull QualifiedName qName, 
+                               @NotNull String elementName, boolean isHighPriority) {
+        super(element); // Pass the element where the fix is applied
+        
+        // Handle case where qName represents a top-level module/package directly
+        if (qName.getComponentCount() == 1 && qName.getLastComponent().equals(elementName)) {
+             this.importPath = null; // Indicates top-level import needed
+        } else {
+             this.importPath = qName.removeLastComponent(); // Path to the module/package
         }
-        // When generating a preview, the file is a copy and might not be physical.
-        // We should avoid checks that rely on the file being part of the physical project structure if not needed.
-        // However, FilenameIndex and QualifiedNameFinder should work on the copy's content.
+        this.importElementName = elementName; // The specific thing being imported or "*"
+        this.isHighPriority = isHighPriority;
 
-        int offset = editor.getCaretModel().getOffset();
-        PsiElement elementAtCaret = file.findElementAt(offset);
-        PyReferenceExpression refExpr = PsiTreeUtil.getParentOfType(elementAtCaret, PyReferenceExpression.class);
-
-        if (refExpr == null || refExpr.getReference().resolve() != null) {
-            return false; 
+        // Determine the custom format (replace with actual logic based on settings/rules)
+        if ("*".equals(elementName)) {
+            this.customFormatString = "from {} import *  # custom rule"; 
+        } else if (this.importPath == null) {
+            this.customFormatString = "import {}  # custom rule"; // Format for top-level import
         }
-
-        String referenceName = refExpr.getName();
-        if (referenceName == null || referenceName.isEmpty()) {
-            return false;
-        }
-
-        List<String> specialParentDirPaths = CustomImportSettingsState.getInstance().getSpecialDirectoriesList();
-        if (specialParentDirPaths.isEmpty()) {
-            return false;
-        }
-
-        GlobalSearchScope scope = GlobalSearchScope.projectScope(project); // Scope should be okay for preview
-        boolean foundCandidateInSpecialPath = false;
-
-        // 1. Look for modules (files like referenceName.py)
-        PsiFile[] filesArray = FilenameIndex.getFilesByName(project, referenceName + ".py", scope);
-        for (PsiFile psiFile : filesArray) {
-            if (psiFile instanceof PyFile) {
-                if (checkItem(psiFile, referenceName, specialParentDirPaths)) {
-                    foundCandidateInSpecialPath = true;
-                    break;
-                }
-            }
-        }
-
-        if (foundCandidateInSpecialPath) {
-            // setText is a side-effect on the action itself, which is fine.
-            if (this.detectedAliasName != null) {
-                 setText("Import as 'import " + this.detectedFullQualifiedName + " as " + this.detectedAliasName + "'");
-            } else {
-                 setText("Import as 'import " + this.detectedFullQualifiedName + "'");
-            }
-            return true;
-        }
-
-        // 2. Look for packages (directories like referenceName/__init__.py)
-        Collection<VirtualFile> virtualDirs = FilenameIndex.getVirtualFilesByName(referenceName, true, scope);
-        for (VirtualFile vDir : virtualDirs) {
-            if (vDir.isDirectory()) {
-                PsiDirectory psiDirectory = PsiManager.getInstance(project).findDirectory(vDir);
-                if (psiDirectory != null && psiDirectory.findFile("__init__.py") != null) {
-                    if (checkItem(psiDirectory, referenceName, specialParentDirPaths)) {
-                        foundCandidateInSpecialPath = true;
-                        break;
-                    }
-                }
-            }
+        else {
+            this.customFormatString = "from {} import {}  # custom rule";
         }
         
-        if (foundCandidateInSpecialPath) {
-             if (this.detectedAliasName != null) {
-                setText("Import as 'import " + this.detectedFullQualifiedName + " as " + this.detectedAliasName + "'");
-            } else { 
-                 setText("Import as 'import " + this.detectedFullQualifiedName + "'");
-            }
-            return true;
-        }
-
-        return false;
+        LOG.debug("CustomFormatImportFix created for element: " + element.getText() + 
+                 ", qName: " + qName + ", derived path: " + importPath + 
+                 ", name: " + elementName + ", high priority: " + isHighPriority);
     }
 
-    private boolean checkItem(@NotNull PsiFileSystemItem item, @NotNull String referenceName, @NotNull List<String> specialParentDirPaths) {
-        QualifiedName qualifiedNameObj = QualifiedNameFinder.findShortestImportableQName(item);
-        if (qualifiedNameObj == null) {
-            return false;
-        }
-        String qualifiedName = qualifiedNameObj.toString();
-
-        if (qualifiedName.endsWith("." + referenceName)) {
-            String parentQualifiedName = qualifiedName.substring(0, qualifiedName.length() - referenceName.length() - 1);
-            String parentPath = parentQualifiedName.replace('.', '/');
-            for (String specialPath : specialParentDirPaths) {
-                if (parentPath.equals(specialPath) || parentPath.startsWith(specialPath + "/")) {
-                    this.detectedFullQualifiedName = qualifiedName;
-                    this.detectedAliasName = referenceName; 
-                    return true;
-                }
-            }
-        }
-        else if (qualifiedName.equals(referenceName)) {
-            for (String specialPath : specialParentDirPaths) {
-                if (specialPath.isEmpty()) { 
-                    this.detectedFullQualifiedName = qualifiedName;
-                    this.detectedAliasName = null; 
-                    return true;
-                }
-            }
-        }
-        return false;
+    /**
+     * Constructor with default priority (for backward compatibility)
+     */
+    public CustomFormatImportFix(@NotNull PsiElement element, @NotNull QualifiedName qName, 
+                               @NotNull String elementName) {
+        this(element, qName, elementName, true); // Default to high priority
     }
-
 
     @Override
-    public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-        if (!(file instanceof PyFile) || this.detectedFullQualifiedName == null) {
-            return;
+    public @NotNull String getText() {
+        // Text displayed in the quick fix list
+        String displayPath = importPath != null ? importPath.toString() : "<root>";
+        String priority = isHighPriority ? "[HIGH] " : ""; // Visual indicator in text
+        return String.format("%sImport '%s' from '%s' (Custom Format)", 
+                           priority, importElementName, displayPath);
+    }
+
+    @Override
+    public @NotNull String getFamilyName() {
+        // Group similar fixes
+        return isHighPriority ? "Custom Import Formatter (High Priority)" : "Custom Import Formatter";
+    }
+    
+    /**
+     * Used by the IDE to determine ordering of quick fixes. Lower values appear first.
+     */
+    @Override
+    public Priority getPriority() {
+        PriorityAction.Priority var10000 = Priority.TOP;
+        return isHighPriority ? var10000 : Priority.HIGH; // High negative priority appears first
+    }
+    
+    // We implement invoke() for LocalQuickFixOnPsiElement
+    @Override
+    public void invoke(@NotNull Project project, @NotNull PsiFile file, @NotNull PsiElement startElement, @NotNull PsiElement endElement) {
+        LOG.debug("invoke called for CustomFormatImportFix for element " + startElement.getText());
+        
+        // Use WriteCommandAction to modify the PSI tree
+        // Pass family name to group undo actions
+        WriteCommandAction.runWriteCommandAction(project, getFamilyName(), null, this::performImport, file); 
+    }
+
+    // isAvailable is inherited from LocalQuickFixOnPsiElement and checks element validity.
+
+    private void performImport() {
+        PsiElement element = getStartElement(); // The unresolved reference element
+        if (element == null || !element.isValid()) {
+             LOG.warn("Element is no longer valid in performImport.");
+             return;
         }
-        PyFile pyFile = (PyFile) file;
-        final String qualifiedName = this.detectedFullQualifiedName;
-        final String alias = this.detectedAliasName;
+        Project project = element.getProject();
+        PsiFile file = element.getContainingFile();
 
-        // The core logic now uses AddImportHelper
-        Runnable psiModificationLogic = () -> {
-            try {
-                // Use AddImportHelper to add the import. It requires the containing file,
-                // the qualified name string, and the desired alias string.
-                // We want the "import a.b.c.d as d" format, which AddImportHelper doesn't directly create.
-                // AddImportHelper primarily creates "from a.b.c import d" or "import d".
-                // Therefore, we still need to generate the specific statement and insert it manually,
-                // but we can try to use AddImportHelper's anchor finding logic.
+        if (file == null) {
+             LOG.warn("Containing file is null.");
+             return;
+        }
 
-                PyElementGenerator generator = PyElementGenerator.getInstance(project);
-                LanguageLevel languageLevel = LanguageLevel.forElement(pyFile);
-                PyImportStatement customImportStatement = generator.createImportStatement(
-                        languageLevel, qualifiedName, alias); // Generate the desired statement
+        LOG.info("Attempting to add custom import for: " + importElementName + " from " + (importPath != null ? importPath : "<root>"));
 
-                // Try to find a good anchor using AddImportHelper logic indirectly
-                // Find the optimal anchor element for adding the import statement
-                PsiElement anchor = AddImportHelper.getFileInsertPosition(pyFile);
-                
-                if (anchor != null) {
-                    // Insert the generated statement relative to the anchor
-                    PsiElement parent = anchor.getParent();
-                    if (anchor == pyFile.getFirstChild() && !(anchor instanceof PyImportStatementBase)) {
-                        // If anchor is the first non-import element, insert before it
-                        parent.addBefore(customImportStatement, anchor);
-                        parent.addAfter(PsiParserFacade.getInstance(project).createWhiteSpaceFromText("\n"), customImportStatement);
-                    } else {
-                        // Otherwise, insert after the anchor (typically the last import)
-                        parent.addAfter(customImportStatement, anchor);
-                         parent.addAfter(PsiParserFacade.getInstance(project).createWhiteSpaceFromText("\n"), anchor);
-                    }
-                } else {
-                    // Fallback: add to the end of the file if no anchor found (e.g., empty file)
-                    pyFile.add(customImportStatement);
+        // Generate the custom import statement text
+        String importStatementText;
+        try {
+            if ("*".equals(importElementName)) {
+                if (importPath == null || importPath.getComponentCount() == 0) {
+                     LOG.warn("Cannot generate 'import *' from root.");
+                     return; // Or handle differently
                 }
-                LOG.info("Custom import statement operation attempted: " + customImportStatement.getText());
-
-            } catch (Exception e) {
-                LOG.error("Error applying custom import fix: " + e.getMessage(), e);
+                 // Format string like "from {} import * # custom rule"
+                importStatementText = String.format(customFormatString.replace("{}", "%s"), importPath.toString());
+            } else if (importPath == null) {
+                // Format string like "import {} # custom rule"
+                importStatementText = String.format(customFormatString.replace("{}", "%s"), importElementName);
             }
-        };
-
-        if (IntentionPreviewUtils.isPreviewElement(pyFile)) {
-            psiModificationLogic.run();
-        } else {
-            WriteCommandAction.runWriteCommandAction(project, getText(), null, psiModificationLogic, pyFile);
+            else {
+                 // Format string like "from {} import {} # custom rule"
+                 importStatementText = String.format(customFormatString.replace("{}", "%s"), importPath.toString(), importElementName);
+            }
+        } catch (java.util.IllegalFormatException e) {
+             LOG.error("Error formatting custom import string: '" + customFormatString + 
+                       "' with path='" + importPath + "', name='" + importElementName + "'", e);
+             return;
         }
+
+
+        LOG.debug("Generated import statement text: " + importStatementText);
+        
+        // Add the import statement using AddImportHelper for correct placement
+        // Fix for error #1: USER_IMPORT doesn't exist in your version, using NORMAL instead
+        // AddImportHelper.ImportPriority priority = AddImportHelper.ImportPriority.USER_IMPORT;
+        
+        // It seems AddImportHelper doesn't directly take a raw string. 
+        // We need to create a PSI element for the import statement first.
+        PyElementGenerator elementGenerator = PyElementGenerator.getInstance(project);
+        try {
+            // Fix for error #2: Use the correct method to create an import statement
+            // The createImportStatementFromText doesn't exist in your version
+            PyImportStatementBase newImportStmt;
+            
+            // Create the appropriate type of import statement based on the format
+            if (importPath == null) {
+                // Simple import: "import modulename"
+                newImportStmt = elementGenerator.createFromText(
+                    LanguageLevel.forElement(file),
+                    PyImportStatement.class,
+                    importStatementText
+                );
+            } else {
+                // From import: "from module import name"
+                newImportStmt = elementGenerator.createFromText(
+                    LanguageLevel.forElement(file),
+                    PyFromImportStatement.class,
+                    importStatementText
+                );
+            }
+            
+            if (newImportStmt == null) {
+                LOG.error("Failed to generate PSI for import statement: " + importStatementText);
+                return;
+            }
+            
+            LOG.debug("Generated PSI Import Statement: " + newImportStmt.getText());
+
+            // Fix for error #3: The addImport signature we tried doesn't exist either
+            // Let's directly add the import statement to the file
+            PsiElement anchor = AddImportHelper.getFileInsertPosition(file);
+            if (anchor != null) {
+                file.addBefore(newImportStmt, anchor);
+                LOG.info("Successfully added import statement through manual insertion.");
+            } else {
+                // If we can't find a good position, add it to the beginning
+                file.addAfter(newImportStmt, file.getFirstChild());
+                LOG.info("Added import at the beginning of the file.");
+            }
+
+        } catch (Exception e) {
+            // Catch broader exceptions during PSI generation or adding
+            LOG.error("Error generating or adding import statement: " + importStatementText, e);
+        }
+    }
+
+    // We don't need isAvailable/startInWriteAction from BaseIntentionAction
+    // LocalQuickFixOnPsiElement handles availability check.
+    // Write action is handled by invoke calling runWriteCommandAction.
+    
+     /**
+     * Required for LocalQuickFixOnPsiElement, but we handle modifications in invoke.
+     * Can potentially be used for preview.
+     */
+    @Override
+    public @Nullable PsiElement getElementToMakeWritable(@NotNull PsiFile currentFile) {
+        // The file itself needs to be writable to add imports.
+        return currentFile;
     }
 } 

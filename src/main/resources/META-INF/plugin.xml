@@ -29,12 +29,28 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Remove the IntentionAction registration -->
+        <!--
         <intentionAction>
           <className>com.liuhao.customimport.CustomFormatImportFix</className>
           <category>Python</category>
-          <!-- You can add a description key for localization if needed -->
-          <!-- <descriptionDirectoryName>intentionDescriptions/CustomFormatImportFix</descriptionDirectoryName> -->
+          <descriptionDirectoryName>intentionDescriptions/CustomFormatImportFix</descriptionDirectoryName> 
         </intentionAction>
+        -->
+
+        <!-- Remove the localInspection -->
+        <!--
+        <localInspection language="Python" 
+                         shortName="PythonUnresolvedReference" 
+                         displayName="Python Unresolved Reference"
+                         enabledByDefault="true" 
+                         level="ERROR" 
+                         implementationClass="com.liuhao.customimport.quickfix.CustomUnresolvedReferenceInspection"/>
+        -->
+        
+        <!-- Add the unresolvedReferenceQuickFixProvider back -->
+
+        <!-- Keep existing settings registrations -->
         <!-- Register the settings service -->
         <applicationService serviceImplementation="com.liuhao.customimport.settings.CustomImportSettingsState"/>
         
@@ -43,8 +59,9 @@
             groupId="tools" 
             instance="com.liuhao.customimport.settings.CustomImportSettingsConfigurable"/>
     </extensions>
-    
-    <extensions defaultExtensionNs="Pythonid">
-        <importCandidateProvider implementation="com.liuhao.customimport.CustomFormatImportCandidateProvider"/>
+        <extensions defaultExtensionNs="Pythonid">
+        <unresolvedReferenceQuickFixProvider
+                implementation="com.liuhao.customimport.quickfix.CustomFormatQuickFixProvider"
+                order="first"/>
     </extensions>
 </idea-plugin>
