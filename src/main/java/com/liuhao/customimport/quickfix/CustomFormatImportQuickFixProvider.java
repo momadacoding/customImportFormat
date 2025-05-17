@@ -6,6 +6,9 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ScrollType;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -194,6 +197,15 @@ public class CustomFormatImportQuickFixProvider implements PyUnresolvedReference
                 return;
             }
 
+            Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+            int caretOffset = -1;
+            if (editor != null && editor.getDocument() == pyFile.getViewProvider().getDocument()) {
+                caretOffset = editor.getCaretModel().getOffset();
+            }
+
+            int elementStartOffset = element.getTextRange().getStartOffset();
+            int elementEndOffset = element.getTextRange().getEndOffset();
+            
             Runnable psiModificationLogic = () -> {
                 try {
                     PyElementGenerator generator = PyElementGenerator.getInstance(project);
@@ -237,6 +249,36 @@ public class CustomFormatImportQuickFixProvider implements PyUnresolvedReference
                 psiModificationLogic.run();
             } else {
                 WriteCommandAction.runWriteCommandAction(project, psiModificationLogic);
+                
+                if (editor != null && caretOffset >= 0) {
+                    PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(editor.getDocument());
+                    
+                    PsiElement updatedElement = null;
+                    try {
+                        PsiElement elementAt = pyFile.findElementAt(elementStartOffset);
+                        if (elementAt != null) {
+                            updatedElement = elementAt;
+                            while (updatedElement != null && !(updatedElement instanceof PyReferenceExpression)) {
+                                updatedElement = updatedElement.getParent();
+                            }
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Error finding updated element after import fix", e);
+                    }
+                    
+                    if (updatedElement != null) {
+                        int newOffset = updatedElement.getTextRange().getEndOffset();
+                        editor.getCaretModel().moveToOffset(newOffset);
+                        editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
+                    } else {
+                        try {
+                            editor.getCaretModel().moveToOffset(caretOffset);
+                            editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
+                        } catch (Exception e) {
+                            LOG.warn("Failed to restore caret position", e);
+                        }
+                    }
+                }
             }
         }
     }
