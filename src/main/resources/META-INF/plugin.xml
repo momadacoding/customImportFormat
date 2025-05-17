@@ -32,8 +32,6 @@
         <intentionAction>
           <className>com.liuhao.customimport.CustomFormatImportFix</className>
           <category>Python</category>
-          <!-- You can add a description key for localization if needed -->
-          <!-- <descriptionDirectoryName>intentionDescriptions/CustomFormatImportFix</descriptionDirectoryName> -->
         </intentionAction>
         <!-- Register the settings service -->
         <applicationService serviceImplementation="com.liuhao.customimport.settings.CustomImportSettingsState"/>
@@ -45,6 +43,7 @@
     </extensions>
     
     <extensions defaultExtensionNs="Pythonid">
-        <importCandidateProvider implementation="com.liuhao.customimport.CustomFormatImportCandidateProvider"/>
+<!--    没有办法添加自定义格式-->
+<!--        <importCandidateProvider implementation="com.liuhao.customimport.CustomFormatImportCandidateProvider"/>-->
     </extensions>
 </idea-plugin>
