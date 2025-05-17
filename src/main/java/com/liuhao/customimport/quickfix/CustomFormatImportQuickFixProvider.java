@@ -1,5 +1,7 @@
 package com.liuhao.customimport.quickfix;
 
+import com.intellij.codeInsight.intention.HighPriorityAction;
+import com.intellij.codeInsight.intention.preview.IntentionPreviewUtils;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.command.WriteCommandAction;
@@ -54,7 +56,8 @@ public class CustomFormatImportQuickFixProvider implements PyUnresolvedReference
         CandidateImport candidate = findCandidateImport(project, referenceName, specialParentDirPaths, scope, refExpr);
 
         if (candidate != null) {
-            list.add(new CustomImportLocalQuickFix(candidate.fullQualifiedName, candidate.aliasName));
+            //list.clear();
+            list.add(new AAA_CustomImportQuickFix(refExpr, candidate.fullQualifiedName, candidate.aliasName));
         }
     }
 
@@ -151,13 +154,15 @@ public class CustomFormatImportQuickFixProvider implements PyUnresolvedReference
     }
 
 
-    private static class CustomImportLocalQuickFix implements LocalQuickFix {
+    private static class AAA_CustomImportQuickFix implements LocalQuickFix, HighPriorityAction {
         private final String fullQualifiedName;
         private final String aliasName;
+        private final PyReferenceExpression myElement;
 
-        CustomImportLocalQuickFix(String fullQualifiedName, @Nullable String aliasName) {
+        AAA_CustomImportQuickFix(PyReferenceExpression element, String fullQualifiedName, @Nullable String aliasName) {
             this.fullQualifiedName = fullQualifiedName;
             this.aliasName = aliasName;
+            this.myElement = element;
         }
 
         @Nls(capitalization = Nls.Capitalization.Sentence)
@@ -165,9 +170,9 @@ public class CustomFormatImportQuickFixProvider implements PyUnresolvedReference
         @Override
         public String getName() {
             if (aliasName != null) {
-                return "Import as 'import " + fullQualifiedName + " as " + aliasName + "'";
+                return "AAA Import as 'import " + fullQualifiedName + " as " + aliasName + "'";
             } else {
-                return "Import as 'import " + fullQualifiedName + "'";
+                return "AAA Import as 'import " + fullQualifiedName + "'";
             }
         }
 
@@ -175,7 +180,7 @@ public class CustomFormatImportQuickFixProvider implements PyUnresolvedReference
         @NotNull
         @Override
         public String getFamilyName() {
-            return "Custom Python Import Formatter";
+            return "AAA Custom Python Import Formatter";
         }
 
         @Override
@@ -228,7 +233,11 @@ public class CustomFormatImportQuickFixProvider implements PyUnresolvedReference
                 }
             };
             
-            WriteCommandAction.runWriteCommandAction(project, psiModificationLogic);
+            if (IntentionPreviewUtils.isPreviewElement(pyFile)) {
+                psiModificationLogic.run();
+            } else {
+                WriteCommandAction.runWriteCommandAction(project, psiModificationLogic);
+            }
         }
     }
 } 

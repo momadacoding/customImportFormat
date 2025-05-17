@@ -39,7 +39,7 @@
     </extensions>
     
     <extensions defaultExtensionNs="Pythonid">
-        <unresolvedReferenceQuickFixProvider implementation="com.liuhao.customimport.quickfix.CustomFormatImportQuickFixProvider"/>
+        <unresolvedReferenceQuickFixProvider implementation="com.liuhao.customimport.quickfix.CustomFormatImportQuickFixProvider" order="first"/>
 <!--    没有办法添加自定义格式-->
 <!--        <importCandidateProvider implementation="com.liuhao.customimport.CustomFormatImportCandidateProvider"/>-->
     </extensions>
