@@ -35,7 +35,8 @@ public class CustomImportSettingsConfigurable implements Configurable {
             return false;
         }
         CustomImportSettingsState settings = CustomImportSettingsState.getInstance();
-        return !myPanel.getDirectories().equals(settings.getSpecialDirectoriesList());
+        return !myPanel.getDirectories().equals(settings.getSpecialDirectoriesList()) ||
+               !myPanel.getSourceRootPatterns().equals(settings.getSourceRootPatterns());
     }
 
     @Override
@@ -43,6 +44,7 @@ public class CustomImportSettingsConfigurable implements Configurable {
         if (myPanel != null) {
             CustomImportSettingsState settings = CustomImportSettingsState.getInstance();
             settings.setSpecialDirectoriesList(new ArrayList<>(myPanel.getDirectories()));
+            settings.setSourceRootPatterns(new ArrayList<>(myPanel.getSourceRootPatterns()));
         }
     }
 
@@ -51,6 +53,7 @@ public class CustomImportSettingsConfigurable implements Configurable {
         if (myPanel != null) {
             CustomImportSettingsState settings = CustomImportSettingsState.getInstance();
             myPanel.setDirectories(new ArrayList<>(settings.getSpecialDirectoriesList()));
+            myPanel.setSourceRootPatterns(new ArrayList<>(settings.getSourceRootPatterns()));
         }
     }
 
@@ -62,8 +65,40 @@ public class CustomImportSettingsConfigurable implements Configurable {
     /**
      * Panel for the settings UI
      */
-    private static class CustomImportSettingsPanel extends AddEditDeleteListPanel<String> {
+    private static class CustomImportSettingsPanel extends JPanel {
+        private final DirectoryListPanel directoriesPanel;
+        private final SourceRootListPanel sourceRootPanel;
+
         public CustomImportSettingsPanel() {
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+            
+            directoriesPanel = new DirectoryListPanel();
+            sourceRootPanel = new SourceRootListPanel();
+            
+            add(directoriesPanel);
+            add(Box.createVerticalStrut(10));
+            add(sourceRootPanel);
+        }
+
+        public List<String> getDirectories() {
+            return directoriesPanel.getItems();
+        }
+
+        public void setDirectories(List<String> directories) {
+            directoriesPanel.setItems(directories);
+        }
+
+        public List<String> getSourceRootPatterns() {
+            return sourceRootPanel.getItems();
+        }
+
+        public void setSourceRootPatterns(List<String> patterns) {
+            sourceRootPanel.setItems(patterns);
+        }
+    }
+
+    private static class DirectoryListPanel extends AddEditDeleteListPanel<String> {
+        public DirectoryListPanel() {
             super("Special directories for custom import format", new ArrayList<>());
             setToolTipText("<html>For directories listed here, Python imports will be in the format:<br>" +
                     "<code>import a.b.c.d as d</code> instead of <code>from a.b.c import d</code><br><br>" +
@@ -95,8 +130,7 @@ public class CustomImportSettingsConfigurable implements Configurable {
             return result != null ? result.toString() : initialValue;
         }
 
-        public List<String> getDirectories() {
-            // Convert Object[] to List<String>
+        public List<String> getItems() {
             Object[] items = getListItems();
             List<String> result = new ArrayList<>(items.length);
             for (Object item : items) {
@@ -107,14 +141,65 @@ public class CustomImportSettingsConfigurable implements Configurable {
             return result;
         }
 
-        public void setDirectories(List<String> directories) {
-            // Clear all elements from the list model
+        public void setItems(List<String> items) {
             DefaultListModel model = (DefaultListModel) myListModel;
             model.removeAllElements();
+            for (String item : items) {
+                myListModel.addElement(item);
+            }
+        }
+    }
+
+    private static class SourceRootListPanel extends AddEditDeleteListPanel<String> {
+        public SourceRootListPanel() {
+            super("Source root patterns (fallback only)", new ArrayList<>());
+            setToolTipText("<html><b>Note:</b> The plugin now uses PyCharm's configured source roots from Project Structure first.<br>" +
+                    "These patterns are only used as fallback when PyCharm's source root detection fails.<br><br>" +
+                    "To configure source roots properly, go to <b>File ??Project Structure ??Modules ??Sources</b><br>" +
+                    "and mark your Python directories as 'Sources' (blue folder icon).<br><br>" +
+                    "Fallback patterns: <code>Script/Python</code>, <code>src</code>, <code>source</code></html>");
+        }
+
+        @Override
+        protected String findItemToAdd() {
+            return showEditDialog("");
+        }
+
+        @Override
+        protected String editSelectedItem(String item) {
+            return showEditDialog(item);
+        }
+
+        private String showEditDialog(String initialValue) {
+            Object result = JOptionPane.showInputDialog(
+                    this,
+                    "Enter source root pattern (use / as separator):",
+                    "Source Root Pattern",
+                    JOptionPane.PLAIN_MESSAGE,
+                    null,
+                    null,
+                    initialValue
+            );
             
-            // Add each directory using myListModel
-            for (String directory : directories) {
-                myListModel.addElement(directory);
+            return result != null ? result.toString() : initialValue;
+        }
+
+        public List<String> getItems() {
+            Object[] items = getListItems();
+            List<String> result = new ArrayList<>(items.length);
+            for (Object item : items) {
+                if (item instanceof String) {
+                    result.add((String) item);
+                }
+            }
+            return result;
+        }
+
+        public void setItems(List<String> items) {
+            DefaultListModel model = (DefaultListModel) myListModel;
+            model.removeAllElements();
+            for (String item : items) {
+                myListModel.addElement(item);
             }
         }
     }
