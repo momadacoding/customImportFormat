@@ -18,13 +18,17 @@
     <br>
     Instead of the standard PyCharm format <code>from a.b.c import d</code>,
     modules under specific directories will be imported as <code>import a.b.c.d as d</code>
+    <br><br>
+    <strong>Requirements:</strong> This plugin requires PyCharm or IntelliJ IDEA with the Python plugin installed.
   ]]></description>
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.lang</depends>
-    <depends>com.intellij.modules.python</depends>
+<!--    <depends>com.intellij.modules.python</depends>-->
+    <!-- Explicitly depend on the Python plugin -->
+    <depends>PythonCore</depends>
 
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->

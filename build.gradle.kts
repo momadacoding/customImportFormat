@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.liuhao"
-version = "1.0-SNAPSHOT"
+version = "1.0.2-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -15,7 +15,7 @@ repositories {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
 intellij {
     version.set("2024.3.5")
-    type.set("PC") // Target IDE Platform
+    type.set("IC") // Target IntelliJ IDEA Community Edition for broader compatibility
 
     plugins.set(listOf("PythonCore:243.22562.145"))
     downloadSources.set(false)
@@ -34,6 +34,15 @@ tasks {
     patchPluginXml {
         sinceBuild.set("243")
         untilBuild.set("251.*")
+        
+        // Add plugin compatibility information
+        pluginDescription.set("""
+            This plugin customizes Python import statements for specific directories.
+            Instead of the standard PyCharm format 'from a.b.c import d',
+            modules under specific directories will be imported as 'import a.b.c.d as d'
+            
+            Requirements: This plugin requires PyCharm or IntelliJ IDEA with the Python plugin installed.
+        """.trimIndent())
     }
 
     signPlugin {
